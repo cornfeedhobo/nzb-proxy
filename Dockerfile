@@ -3,7 +3,9 @@ WORKDIR /src
 COPY go.mod ./
 COPY cmd ./cmd
 COPY internal ./internal
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /nzb-proxy ./cmd/nzb-proxy
+ARG VERSION=dev
+ARG REVISION=unknown
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${REVISION}" -o /nzb-proxy ./cmd/nzb-proxy
 
 FROM alpine:3.23
 RUN apk add --no-cache ca-certificates && addgroup -g 10001 nzbproxy && adduser -D -H -u 10001 -G nzbproxy nzbproxy && mkdir /data && chown nzbproxy:nzbproxy /data

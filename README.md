@@ -68,6 +68,49 @@ Add any legitimate CDN redirect destinations to the allowed hosts explicitly. Ho
 
 ## Development
 
+### Releases and image versions
+
+Git release tags are the version source. Pushing `v0.1.0`, for example, runs both
+test jobs and then publishes `ghcr.io/cornfeedhobo/nzb-proxy:0.1.0` and
+`ghcr.io/cornfeedhobo/nzb-proxy:sha-<full-commit-sha>`. The image also records its
+version, source repository, and commit in OCI labels. The same version and commit
+are embedded in the Go binary at build time and printed by `nzb-proxy --version`,
+without requiring service configuration or starting the server. There is no
+separate `VERSION` file. `.go-version` selects the Go toolchain, not the application version.
+
+For example, a `v0.1.0` release reports `nzb-proxy 0.1.0 (commit <full-commit-sha>)`.
+Ordinary local builds report `nzb-proxy dev (commit unknown)`. To embed a version
+in a manual build:
+
+```sh
+go build -ldflags="-X main.version=0.1.0 -X main.commit=$(git rev-parse HEAD)" -o bin/nzb-proxy ./cmd/nzb-proxy
+./bin/nzb-proxy --version
+```
+
+Docker builds accept equivalent `VERSION` and `REVISION` build arguments. CI
+supplies both from the release tag and commit; a published image supports
+`docker run --rm ghcr.io/cornfeedhobo/nzb-proxy:0.1.0 --version`.
+
+Release tags must use `vMAJOR.MINOR.PATCH`, with no leading zeroes. The initial
+publishing workflow supports Linux AMD64 and exact version/commit tags; it does
+not update a floating `latest` tag. Use a new version tag for each release rather
+than moving an existing tag. Branch pushes and pull requests run tests only.
+
+After the desired changes are committed and pushed, create and push a release tag:
+
+```sh
+git tag -a v0.1.0 -m "Release v0.1.0"
+git push origin v0.1.0
+```
+
+The workflow authenticates to GHCR using GitHub's `GITHUB_TOKEN`, with package
+write permission limited to the publishing job; no Docker Hub credentials are
+needed. See [GitHub's container publishing guide](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images).
+Package visibility/access must be configured in GHCR for the intended consumers.
+No image is available until a tagged workflow run publishes successfully.
+
+### Local checks
+
 ```sh
 go test -race ./...
 go vet ./...

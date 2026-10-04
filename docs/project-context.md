@@ -117,6 +117,24 @@ Cross-indexer content deduplication is outside the initial scope. Hashing bytes 
 - Downloads require HTTP 200 and a complete XML NZB document containing nonempty message segments under `nzb/file/segments`. This is structural validation, not complete NZB schema or Usenet availability validation. Invalid, oversized, or unsuccessful responses are not cached. Failed or interrupted attempts can require a new fetch.
 - Docker and Compose examples are provided. Existing container networks and allowlisted CDN hosts must be configured for the actual deployment.
 
+## Container release workflow
+
+The requested publishing workflow is implemented in `.github/workflows/ci.yml`.
+The initial convention uses Git tags (`vMAJOR.MINOR.PATCH`) as the application
+version source and GHCR (`ghcr.io/cornfeedhobo/nzb-proxy`) as the registry.
+These defaults were selected during implementation and can be revised by the user.
+Both the Go checks and real-application integration job must pass before a tag
+push publishes a Linux AMD64 image. Images receive exact version and full commit
+SHA tags plus OCI version/revision/source/license labels. No floating aliases
+or prerelease versions are currently published. The user also requires CLI version
+output: `nzb-proxy --version` prints the application version and commit without
+loading service configuration. Docker `VERSION`/`REVISION` build arguments inject
+the same tag-derived version and commit into the Go binary using linker flags;
+ordinary local builds default to `dev`/`unknown`. `.go-version` remains solely the
+toolchain version. The workflow uses `GITHUB_TOKEN` with `packages: write` only in
+the publishing job. No release tag or registry publication has been performed
+locally; successful remote publication and package visibility remain unverified.
+
 ## Remaining integration work
 
 1. Inspect sanitized feeds from the configured indexers to verify stable GUIDs and download-link origins without initiating NZB grabs.
