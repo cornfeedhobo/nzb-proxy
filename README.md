@@ -70,9 +70,14 @@ Add any legitimate CDN redirect destinations to the allowed hosts explicitly. Ho
 
 ### Releases and image versions
 
-Git release tags are the version source. Pushing `v0.1.0`, for example, runs both
-test jobs and then publishes `ghcr.io/cornfeedhobo/nzb-proxy:0.1.0` and
-`ghcr.io/cornfeedhobo/nzb-proxy:sha-<full-commit-sha>`. The image also records its
+Successful pushes and merges to `main` publish `ghcr.io/cornfeedhobo/nzb-proxy:latest`
+and `ghcr.io/cornfeedhobo/nzb-proxy:sha-<full-commit-sha>`, after both test jobs pass.
+These binaries report `dev` plus the commit SHA. New `main` pushes cancel older
+in-progress runs so they do not later overwrite `latest`.
+
+Git release tags are the release version source. Pushing `v0.1.0`, for example,
+runs both test jobs and then publishes `ghcr.io/cornfeedhobo/nzb-proxy:0.1.0`.
+Release builds leave `latest` and the development commit tags alone. The image records its
 version, source repository, and commit in OCI labels. The same version and commit
 are embedded in the Go binary at build time and printed by `nzb-proxy --version`,
 without requiring service configuration or starting the server. There is no
@@ -88,13 +93,13 @@ go build -ldflags="-X main.version=0.1.0 -X main.commit=$(git rev-parse HEAD)" -
 ```
 
 Docker builds accept equivalent `VERSION` and `REVISION` build arguments. CI
-supplies both from the release tag and commit; a published image supports
+supplies the release version (or `dev` for `main`) and commit; a published image supports
 `docker run --rm ghcr.io/cornfeedhobo/nzb-proxy:0.1.0 --version`.
 
 Release tags must use `vMAJOR.MINOR.PATCH`, with no leading zeroes. The initial
-publishing workflow supports Linux AMD64 and exact version/commit tags; it does
-not update a floating `latest` tag. Use a new version tag for each release rather
-than moving an existing tag. Branch pushes and pull requests run tests only.
+publishing workflow supports Linux AMD64. Use a new version tag for each release
+rather than moving an existing tag. Other branch pushes and pull requests run
+tests only.
 
 After the desired changes are committed and pushed, create and push a release tag:
 
@@ -107,7 +112,8 @@ The workflow authenticates to GHCR using GitHub's `GITHUB_TOKEN`, with package
 write permission limited to the publishing job; no Docker Hub credentials are
 needed. See [GitHub's container publishing guide](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images).
 Package visibility/access must be configured in GHCR for the intended consumers.
-No image is available until a tagged workflow run publishes successfully.
+No image is available until an eligible workflow run publishes successfully.
+Dependabot checks GitHub Actions versions weekly and groups updates into one PR.
 
 ### Local checks
 

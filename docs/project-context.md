@@ -120,20 +120,26 @@ Cross-indexer content deduplication is outside the initial scope. Hashing bytes 
 ## Container release workflow
 
 The requested publishing workflow is implemented in `.github/workflows/ci.yml`.
-The initial convention uses Git tags (`vMAJOR.MINOR.PATCH`) as the application
-version source and GHCR (`ghcr.io/cornfeedhobo/nzb-proxy`) as the registry.
-These defaults were selected during implementation and can be revised by the user.
-Both the Go checks and real-application integration job must pass before a tag
-push publishes a Linux AMD64 image. Images receive exact version and full commit
-SHA tags plus OCI version/revision/source/license labels. No floating aliases
-or prerelease versions are currently published. The user also requires CLI version
+The user approved publishing successful `main` pushes and merges to `latest`
+and `sha-<full-commit-sha>` in GHCR (`ghcr.io/cornfeedhobo/nzb-proxy`). Git tags
+(`vMAJOR.MINOR.PATCH`) publish the exact release version without changing those
+development tags. Both the Go checks and real-application integration job must
+pass before publishing a Linux AMD64 image. New `main` pushes cancel older active
+runs. Pull requests and other branch pushes only run tests. Images include OCI
+version/revision/source/license labels; prerelease versions are not currently
+supported. The user also requires CLI version
 output: `nzb-proxy --version` prints the application version and commit without
 loading service configuration. Docker `VERSION`/`REVISION` build arguments inject
-the same tag-derived version and commit into the Go binary using linker flags;
+the release version (or `dev` for `main`) and commit into the Go binary using linker flags;
 ordinary local builds default to `dev`/`unknown`. `.go-version` remains solely the
 toolchain version. The workflow uses `GITHUB_TOKEN` with `packages: write` only in
 the publishing job. No release tag or registry publication has been performed
 locally; successful remote publication and package visibility remain unverified.
+
+The user requires current GitHub Actions releases. Workflow action references use
+explicit release versions, checked against upstream releases when changed.
+`.github/dependabot.yml` checks GitHub Actions dependencies weekly and groups updates
+into a pull request; merging updates remains a separate action.
 
 ## Remaining integration work
 

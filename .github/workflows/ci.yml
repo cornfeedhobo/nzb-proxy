@@ -4,12 +4,15 @@ on:
   pull_request:
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version-file: .go-version
           cache: false
@@ -26,37 +29,44 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - run: python3 tests/integration/run.py
   publish:
     needs: [test, integration]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
-      - name: Read release version from Git tag
+      - uses: actions/checkout@v7.0.1
+      - name: Determine image tags and binary version
         id: release
         shell: bash
         run: |
-          if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          if [[ "$GITHUB_REF" == 'refs/heads/main' ]]; then
+            version=dev
+            tags="${image}:latest,${image}:sha-${GITHUB_SHA}"
+          elif [[ "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            tags="${image}:${version}"
+          else
             echo 'Release tags must have the form vMAJOR.MINOR.PATCH (for example v0.1.0).' >&2
             exit 1
           fi
-          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-      - uses: docker/setup-buildx-action@v4
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v4.4.1
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and publish image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v7.4.0
         with:
           context: .
           platforms: linux/amd64
@@ -64,9 +74,7 @@ jobs:
           build-args: |
             VERSION=${{ steps.release.outputs.version }}
             REVISION=${{ github.sha }}
-          tags: |
-            ${{ steps.release.outputs.image }}:${{ steps.release.outputs.version }}
-            ${{ steps.release.outputs.image }}:sha-${{ github.sha }}
+          tags: ${{ steps.release.outputs.tags }}
           labels: |
             org.opencontainers.image.title=nzb-proxy
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
