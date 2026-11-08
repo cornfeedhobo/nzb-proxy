@@ -169,6 +169,27 @@ func TestInvalidAndOversizedResponsesNotCached(t *testing.T) {
 	}
 }
 
+func TestLatin1NZBIsValidatedAndCached(t *testing.T) {
+	doc := []byte("<?xml version=\"1.0\" encoding=\"iso-8859-1\"?><nzb><file subject=\"caf\xe9\"><segments><segment>message@example</segment></segments></file></nzb>")
+	var hits atomic.Int32
+	g, _ := setup(t, func(w http.ResponseWriter, r *http.Request) { hits.Add(1); w.Write(doc) })
+	for range 2 {
+		w := serve(g, "http://proxy.test/base/1/download?apikey=secret&link=latin1")
+		if w.Code != http.StatusOK || !bytes.Equal(w.Body.Bytes(), doc) {
+			t.Fatalf("status %d, original NZB preserved: %t", w.Code, bytes.Equal(w.Body.Bytes(), doc))
+		}
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("upstream requests = %d", hits.Load())
+	}
+	if validNZB(bytes.Replace(doc, []byte("message@example"), []byte(" "), 1)) {
+		t.Fatal("accepted Latin-1 NZB with an empty segment")
+	}
+	if validNZB(bytes.Replace(doc, []byte("iso-8859-1"), []byte("unknown-charset"), 1)) {
+		t.Fatal("accepted an unsupported character encoding")
+	}
+}
+
 func TestRedirectPolicy(t *testing.T) {
 	var downstreamHits atomic.Int32
 	indexer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { downstreamHits.Add(1); fmt.Fprint(w, nzb) }))

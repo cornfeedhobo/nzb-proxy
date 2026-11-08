@@ -414,6 +414,21 @@ func (g *gateway) rewrite(data []byte) []byte {
 
 func validNZB(data []byte) bool {
 	d := xml.NewDecoder(bytes.NewReader(data))
+	d.CharsetReader = func(charset string, input io.Reader) (io.Reader, error) {
+		if !strings.EqualFold(charset, "iso-8859-1") {
+			return nil, errors.New("unsupported NZB character encoding")
+		}
+		data, err := io.ReadAll(input)
+		if err != nil {
+			return nil, err
+		}
+		var text strings.Builder
+		text.Grow(len(data))
+		for _, b := range data {
+			text.WriteRune(rune(b))
+		}
+		return strings.NewReader(text.String()), nil
+	}
 	depth := 0
 	var stack []string
 	root := false
