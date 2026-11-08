@@ -54,6 +54,8 @@ Before using live downloads, verify that search-result download links use the pr
 
 Add any legitimate CDN redirect destinations to the allowed hosts explicitly. Hostnames have no scheme, path, port, or wildcard. External downloads require HTTPS; the configured Prowlarr origin can use HTTP. Configuration and request errors do not intentionally expose download URLs or API keys.
 
+Failed NZB downloads log the indexer ID and the failure. An upstream HTTP error includes its status code. A blocked redirect includes its hostname and scheme. Download URLs and response bodies are not logged.
+
 ## Cache behavior and limitations
 
 - Signed release identities in rewritten RSS links allow cache hits to skip both Prowlarr and the indexer, even when Prowlarr generates a different encrypted download URL for the same release. This depends on the indexer supplying a stable RSS GUID.

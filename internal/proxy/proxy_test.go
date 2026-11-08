@@ -1,10 +1,12 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -185,6 +187,47 @@ func TestRedirectPolicy(t *testing.T) {
 	}
 	if req.URL.Query().Get("apikey") != "" || req.Header.Get("X-Api-Key") != "" || req.Header.Get("Cookie") != "" {
 		t.Fatal("forwarded Prowlarr credentials")
+	}
+}
+
+func TestDownloadFailureLogsSafeDetails(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		upstream http.HandlerFunc
+		want     string
+	}{
+		{"indexer status", func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/download") {
+				http.Redirect(w, r, "/payload", http.StatusFound)
+				return
+			}
+			w.WriteHeader(http.StatusTooManyRequests)
+		}, "indexer response: upstream rejected download: HTTP 429"},
+		{"blocked redirect", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "https://blocked.example/download?token=private", http.StatusFound)
+		}, "blocked.example"},
+		{"blocked later redirect", func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/download") {
+				http.Redirect(w, r, "/payload", http.StatusFound)
+				return
+			}
+			http.Redirect(w, r, "https://blocked.example/download?token=private", http.StatusFound)
+		}, "blocked.example"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			previous := slog.Default()
+			slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+			t.Cleanup(func() { slog.SetDefault(previous) })
+			g, _ := setup(t, tc.upstream)
+			w := serve(g, "http://proxy.test/base/1/download?apikey=secret&link=private&file=x")
+			if w.Code != http.StatusBadGateway || !strings.Contains(logs.String(), tc.want) {
+				t.Fatalf("status %d, log %q", w.Code, logs.String())
+			}
+			if strings.Contains(logs.String(), "secret") || strings.Contains(logs.String(), "private") {
+				t.Fatalf("sensitive data in log: %q", logs.String())
+			}
+		})
 	}
 }
 

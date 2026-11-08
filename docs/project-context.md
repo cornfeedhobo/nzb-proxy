@@ -147,7 +147,7 @@ into a pull request; merging updates remains a separate action.
 2. Repeat application connectivity and synchronization checks against the customized deployment images before rollout. The isolated harness verifies stock Prowlarr/Radarr connectivity, sync, signed links, and a proxy URL base path.
 3. Verify the customized Radarr/Sonarr handoff against deployed source or a controlled trace if needed.
 4. Validate the deployed chain with a deliberately selected NZB only when authorized; fixture success does not prove live integration.
-5. Decide whether operational demand warrants disk quotas, metrics, or richer error propagation. Upstream download errors currently return a generic 502.
+5. Decide whether operational demand warrants disk quotas, metrics, or richer error propagation. Download errors return a generic 502. The proxy logs the indexer ID and a sanitized cause, including upstream HTTP status or a blocked redirect hostname when available.
 
 Implementation is present and covered by local fixtures. No Lakshmi service configuration has been changed, and deployment remains a separate step.
 

@@ -11,7 +11,9 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"net/url"
@@ -46,6 +48,8 @@ type gateway struct {
 	flights map[string]*flight
 }
 
+var errDisallowedRedirect = errors.New("redirect destination is not allowed")
+
 func New(cfg Config, store *cache.Store) (http.Handler, error) {
 	if cfg.UpstreamURL == nil || cfg.PublicURL == nil || cfg.UpstreamURL.Host == "" || cfg.PublicURL.Host == "" || cfg.APIKey == "" || store == nil {
 		return nil, errors.New("upstream, public URL, API key and cache are required")
@@ -68,7 +72,7 @@ func New(cfg Config, store *cache.Store) (http.Handler, error) {
 	g.client = &http.Client{Timeout: cfg.FetchTimeout, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		req.Header.Del("Referer")
 		if len(via) >= 10 || !g.allowed(req.URL) {
-			return errors.New("redirect destination is not allowed")
+			return fmt.Errorf("%w: host=%q scheme=%q", errDisallowedRedirect, req.URL.Hostname(), req.URL.Scheme)
 		}
 		if req.URL.Host != cfg.UpstreamURL.Host {
 			req.Header.Del("X-Api-Key")
@@ -165,6 +169,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		u.RawQuery = q.Encode()
 		e, err := g.download(r.Context(), cacheKey, &u)
 		if err != nil {
+			slog.Warn("NZB retrieval failed", "indexer", parts[0], "error", err)
 			http.Error(w, "NZB retrieval failed", http.StatusBadGateway)
 			return
 		}
@@ -236,7 +241,7 @@ func (g *gateway) fetch(ctx context.Context, u *url.URL) (cache.Entry, error) {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return cache.Entry{}, errors.New("upstream request failed")
+		return cache.Entry{}, errors.New("Prowlarr request failed")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == 301 || resp.StatusCode == 302 || resp.StatusCode == 303 || resp.StatusCode == 307 || resp.StatusCode == 308 {
@@ -257,19 +262,30 @@ func (g *gateway) fetch(ctx context.Context, u *url.URL) (cache.Entry, error) {
 		key := "resolved-" + hex.EncodeToString(sum[:])
 		return g.shared(ctx, key, func(ctx context.Context) (cache.Entry, error) { return g.fetchDirect(ctx, redirect.URL) })
 	}
-	return g.readNZB(resp)
+	entry, err := g.readNZB(resp)
+	if err != nil {
+		return cache.Entry{}, fmt.Errorf("Prowlarr response: %w", err)
+	}
+	return entry, nil
 }
 func (g *gateway) fetchDirect(ctx context.Context, u *url.URL) (cache.Entry, error) {
 	resp, err := g.request(ctx, u)
 	if err != nil {
-		return cache.Entry{}, errors.New("upstream request failed")
+		if errors.Is(err, errDisallowedRedirect) {
+			return cache.Entry{}, errors.Unwrap(err)
+		}
+		return cache.Entry{}, errors.New("indexer request failed")
 	}
 	defer resp.Body.Close()
-	return g.readNZB(resp)
+	entry, err := g.readNZB(resp)
+	if err != nil {
+		return cache.Entry{}, fmt.Errorf("indexer response: %w", err)
+	}
+	return entry, nil
 }
 func (g *gateway) readNZB(resp *http.Response) (cache.Entry, error) {
 	if resp.StatusCode != http.StatusOK {
-		return cache.Entry{}, errors.New("upstream rejected download")
+		return cache.Entry{}, fmt.Errorf("upstream rejected download: HTTP %d", resp.StatusCode)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, g.cfg.MaxNZBBytes+1))
 	if err != nil || int64(len(data)) > g.cfg.MaxNZBBytes {
