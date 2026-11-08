@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -49,6 +50,10 @@ type gateway struct {
 }
 
 var errDisallowedRedirect = errors.New("redirect destination is not allowed")
+
+type rateLimitError struct{ retryAfter string }
+
+func (e *rateLimitError) Error() string { return "upstream rejected download: HTTP 429" }
 
 func New(cfg Config, store *cache.Store) (http.Handler, error) {
 	if cfg.UpstreamURL == nil || cfg.PublicURL == nil || cfg.UpstreamURL.Host == "" || cfg.PublicURL.Host == "" || cfg.APIKey == "" || store == nil {
@@ -170,6 +175,17 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		e, err := g.download(r.Context(), cacheKey, &u)
 		if err != nil {
 			slog.Warn("NZB retrieval failed", "indexer", parts[0], "error", err)
+			var limited *rateLimitError
+			if errors.As(err, &limited) {
+				w.Header().Set("Cache-Control", "no-store")
+				if _, err := strconv.ParseUint(limited.retryAfter, 10, 64); err == nil {
+					w.Header().Set("Retry-After", limited.retryAfter)
+				} else if _, err := http.ParseTime(limited.retryAfter); err == nil {
+					w.Header().Set("Retry-After", limited.retryAfter)
+				}
+				http.Error(w, "NZB retrieval rate limited", http.StatusTooManyRequests)
+				return
+			}
 			http.Error(w, "NZB retrieval failed", http.StatusBadGateway)
 			return
 		}
@@ -284,6 +300,9 @@ func (g *gateway) fetchDirect(ctx context.Context, u *url.URL) (cache.Entry, err
 	return entry, nil
 }
 func (g *gateway) readNZB(resp *http.Response) (cache.Entry, error) {
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return cache.Entry{}, &rateLimitError{retryAfter: resp.Header.Get("Retry-After")}
+	}
 	if resp.StatusCode != http.StatusOK {
 		return cache.Entry{}, fmt.Errorf("upstream rejected download: HTTP %d", resp.StatusCode)
 	}

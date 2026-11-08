@@ -56,6 +56,8 @@ Add any legitimate CDN redirect destinations to the allowed hosts explicitly. Ho
 
 Failed NZB downloads log the indexer ID and the failure. An upstream HTTP error includes its status code. A blocked redirect includes its hostname and scheme. Download URLs and response bodies are not logged.
 
+If an upstream returns HTTP 429, the proxy returns HTTP 429 to the client. It forwards a valid `Retry-After` header when one is present. Other download failures return HTTP 502.
+
 ## Cache behavior and limitations
 
 - Signed release identities in rewritten RSS links allow cache hits to skip both Prowlarr and the indexer, even when Prowlarr generates a different encrypted download URL for the same release. This depends on the indexer supplying a stable RSS GUID.

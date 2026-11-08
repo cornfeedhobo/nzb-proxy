@@ -222,8 +222,8 @@ func TestDownloadFailureLogsSafeDetails(t *testing.T) {
 				http.Redirect(w, r, "/payload", http.StatusFound)
 				return
 			}
-			w.WriteHeader(http.StatusTooManyRequests)
-		}, "indexer response: upstream rejected download: HTTP 429"},
+			w.WriteHeader(http.StatusForbidden)
+		}, "indexer response: upstream rejected download: HTTP 403"},
 		{"blocked redirect", func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "https://blocked.example/download?token=private", http.StatusFound)
 		}, "blocked.example"},
@@ -247,6 +247,40 @@ func TestDownloadFailureLogsSafeDetails(t *testing.T) {
 			}
 			if strings.Contains(logs.String(), "secret") || strings.Contains(logs.String(), "private") {
 				t.Fatalf("sensitive data in log: %q", logs.String())
+			}
+		})
+	}
+}
+
+func TestRateLimitedDownloadsPreserveRetryAfter(t *testing.T) {
+	for _, tc := range []struct {
+		name, retryAfter, wantHeader string
+		redirect                     bool
+	}{
+		{"prowlarr", "120", "120", false},
+		{"indexer", "Wed, 21 Oct 2026 07:28:00 GMT", "Wed, 21 Oct 2026 07:28:00 GMT", true},
+		{"missing header", "", "", true},
+		{"invalid header", "private-token", "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var hits atomic.Int32
+			g, _ := setup(t, func(w http.ResponseWriter, r *http.Request) {
+				if tc.redirect && strings.HasSuffix(r.URL.Path, "/download") {
+					http.Redirect(w, r, "/payload", http.StatusFound)
+					return
+				}
+				hits.Add(1)
+				w.Header().Set("Retry-After", tc.retryAfter)
+				w.WriteHeader(http.StatusTooManyRequests)
+			})
+			for range 2 {
+				w := serve(g, "http://proxy.test/base/1/download?apikey=secret&link=x")
+				if w.Code != http.StatusTooManyRequests || w.Header().Get("Retry-After") != tc.wantHeader || w.Header().Get("Cache-Control") != "no-store" {
+					t.Fatalf("status %d, Retry-After %q, Cache-Control %q", w.Code, w.Header().Get("Retry-After"), w.Header().Get("Cache-Control"))
+				}
+			}
+			if hits.Load() != 2 {
+				t.Fatal("rate-limited response was cached")
 			}
 		})
 	}
