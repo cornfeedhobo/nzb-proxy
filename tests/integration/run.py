@@ -189,8 +189,8 @@ def run():
             bad, _ = search("bad")
             request(bad, status=502)
             request(bad, status=502)
-            assert api(fixture, "/stats")["bad"] == 2, "Invalid response was cached"
-            print("PASS: authentication, signature binding and invalid-NZB rejection", flush=True)
+            assert api(fixture, "/stats")["bad"] == 1, "Invalid response was fetched again"
+            print("PASS: authentication, signature binding and invalid-NZB cooldown", flush=True)
             # A cached signed request should work with both upstream services unavailable.
             compose("stop", "prowlarr", "fixture")
             assert request(first) == NZB

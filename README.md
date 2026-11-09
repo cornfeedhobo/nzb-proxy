@@ -67,7 +67,7 @@ If an upstream returns HTTP 429, the proxy returns HTTP 429 to the client. It fo
 - One Linux process owns each cache directory, enforced by a file lock. Do not deploy independent replicas expecting shared in-flight deduplication.
 - A private signing key is generated in the cache volume as `.signing-key`. Preserve it across restarts so previously issued download links remain valid. It is separate from the Prowlarr API key shared with clients.
 - Entries are atomic JSON records containing metadata and base64-encoded NZB bytes. Cleanup runs at startup and hourly. There is no total disk quota or LRU eviction yet.
-- Invalid, oversized, or unsuccessful downloads are not cached. Filesystem errors fail the request instead of silently bypassing the cache. Interrupted or failed upstream requests can require another attempt; this is not a lifetime exactly-once guarantee.
+- Invalid NZBs are not served. The proxy records a failure for 15 minutes to prevent repeated indexer downloads. The record survives restarts and expires sooner if the cache retention is shorter. Oversized or unsuccessful responses do not get a failure record. Filesystem errors fail the request instead of silently bypassing the cache. Interrupted or failed upstream requests can require another attempt; this is not a lifetime exactly-once guarantee.
 - NZB validation supports UTF-8 and ISO-8859-1. The proxy preserves the original file bytes.
 - GET is supported; HEAD is rejected so health checks cannot accidentally grab an NZB. Search responses are forwarded rather than cached.
 

@@ -42,7 +42,7 @@ The runner asserts:
    cache and signing key: old and newly issued links still use the saved bytes,
    without additional Prowlarr grabs.
 6. Wrong credentials and modified signed requests are rejected. An HTML response
-   returned as an NZB causes a 502 on each attempt and is never cached.
+   returned as an NZB causes a 502 on each attempt and is fetched only once.
 7. A previously issued link still works after Prowlarr and the provider stop.
 
 Each invocation uses a unique Compose project, random test API key, temporary TLS

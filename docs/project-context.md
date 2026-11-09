@@ -53,6 +53,15 @@ Expected current retrieval sequence:
 
 The user authorized inspection of Lakshmi for this research. Read-only inspection made no service or configuration changes and triggered no NZB downloads.
 
+On 2026-11-08, a later inspection found nzb-proxy running with image
+`sha-80309877abf4203e8e478ffbfae6d4b12be284e0` and Prowlarr 3.0.1.5752.
+All ten lane Radarr and Sonarr instances had three indexers configured through
+the proxy. The two main instances had no indexers. Prowlarr synchronized the
+lane indexers through the proxy, the API keys matched, and all twelve
+applications reached its health endpoint. Two requests for each of three
+existing signed cache entries returned the stored NZB bytes. Diagnostic
+requests retrieved live NZBgeek files to inspect validation failures.
+
 - SSH alias: `lakshmi.wepayforthis.com`; reported hostname: `lakshmi.fuzzlabs.org`.
 - Prowlarr image: `ghcr.io/home-operations/prowlarr:2.4.0.5391`.
 - Radarr images: `localhost/radarr-strm:6.2.0.10390-4`.
@@ -115,6 +124,7 @@ Cross-indexer content deduplication is outside the initial scope. Hashing bytes 
 - A 32-byte private signing key is automatically persisted as `.signing-key` with mode 0600 under the cache directory. Preserve it to keep previously issued signed links valid. Corrupt existing keys are rejected rather than replaced. Prowlarr API-key rotation also changes cache scope.
 - One process owns a cache directory, enforced with a Linux file lock. Independent replicas do not coordinate. Cleanup runs at startup and hourly. No disk quota or LRU eviction is implemented; resolved and wrapper/GUID identities can store duplicate copies of the same NZB bytes.
 - Downloads require HTTP 200 and a complete XML NZB document containing nonempty message segments under `nzb/file/segments`. This is structural validation, not complete NZB schema or Usenet availability validation. Validation supports UTF-8 and ISO-8859-1 and preserves the original bytes. NZBFinder returned an ISO-8859-1 NZB on 2026-11-08. Invalid, oversized, or unsuccessful responses are not cached. Failed or interrupted attempts can require a new fetch.
+- On 2026-11-08, Lakshmi logs showed repeated invalid NZB responses from NZBgeek. A response matched to one failure contained segment elements nested inside other segments. The proxy correctly rejected that corrupt file, but retries fetched it again. The local change records an invalid NZB failure for up to 15 minutes, including across restarts, without storing or serving the invalid bytes. A shorter configured cache retention also shortens this cooldown. This change has not been deployed.
 - Docker and Compose examples are provided. Existing container networks and allowlisted CDN hosts must be configured for the actual deployment.
 
 ## Container release workflow

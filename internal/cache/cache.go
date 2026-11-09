@@ -19,6 +19,7 @@ type Entry struct {
 	Data        []byte
 	ContentType string
 	Filename    string
+	Invalid     bool `json:",omitempty"`
 	// ExpiresAt carries the original retention deadline when reusing an entry
 	// under another key. Zero means this is a new response.
 	ExpiresAt time.Time `json:"-"`
@@ -71,7 +72,7 @@ func (s *Store) read(path string) (Entry, bool, error) {
 		return Entry{}, false, fmt.Errorf("read cache entry: %w", err)
 	}
 	var r record
-	if json.Unmarshal(data, &r) != nil || r.Version != 1 || len(r.Entry.Data) == 0 || !s.now().Before(r.ExpiresAt) {
+	if json.Unmarshal(data, &r) != nil || r.Version != 1 || (len(r.Entry.Data) == 0 && !r.Entry.Invalid) || (len(r.Entry.Data) > 0 && r.Entry.Invalid) || !s.now().Before(r.ExpiresAt) {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return Entry{}, false, fmt.Errorf("remove unusable cache entry: %w", err)
 		}
@@ -84,8 +85,8 @@ func (s *Store) read(path string) (Entry, bool, error) {
 // Put atomically publishes a complete record. Callers must validate NZB contents
 // before writing. A successful return means both file and directory were synced.
 func (s *Store) Put(key string, entry Entry) error {
-	if len(entry.Data) == 0 {
-		return errors.New("cannot cache empty response")
+	if (len(entry.Data) == 0 && !entry.Invalid) || (len(entry.Data) > 0 && entry.Invalid) {
+		return errors.New("cannot cache invalid entry")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

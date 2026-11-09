@@ -200,3 +200,29 @@ func TestAliasesPreserveOriginalExpiry(t *testing.T) {
 		t.Fatalf("inherited expiration exceeded TTL: hit=%v err=%v deadline=%v", hit, err, bounded.ExpiresAt)
 	}
 }
+
+func TestInvalidMarkerExpiresAndSurvivesRestart(t *testing.T) {
+	s := newTestStore(t)
+	now := time.Now().UTC()
+	s.now = func() time.Time { return now }
+	deadline := now.Add(15 * time.Minute)
+	if err := s.Put("invalid", Entry{Invalid: true, ExpiresAt: deadline}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := New(s.dir, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened.now = func() time.Time { return now }
+	entry, hit, err := reopened.Get("invalid")
+	if err != nil || !hit || !entry.Invalid || !entry.ExpiresAt.Equal(deadline) {
+		t.Fatalf("invalid marker: hit=%v err=%v entry=%+v", hit, err, entry)
+	}
+	if err := reopened.Put("ambiguous", Entry{Invalid: true, Data: []byte("data")}); err == nil {
+		t.Fatal("accepted invalid marker with data")
+	}
+	now = deadline
+	if _, hit, err := reopened.Get("invalid"); err != nil || hit {
+		t.Fatalf("expired marker: hit=%v err=%v", hit, err)
+	}
+}

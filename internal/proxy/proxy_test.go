@@ -162,10 +162,62 @@ func TestInvalidAndOversizedResponsesNotCached(t *testing.T) {
 					t.Fatalf("accepted bad payload: %d", w.Code)
 				}
 			}
-			if hits.Load() != 2 {
-				t.Fatal("cached invalid payload")
+			want := int32(1)
+			if body == nzb {
+				want = 2
+			}
+			if hits.Load() != want {
+				t.Fatalf("upstream requests = %d, want %d", hits.Load(), want)
 			}
 		})
+	}
+}
+
+func TestInvalidNZBCooldownSurvivesRestartAndDifferentLinks(t *testing.T) {
+	var resolutions, downloads atomic.Int32
+	g, s := setup(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/download") {
+			resolutions.Add(1)
+			http.Redirect(w, r, "/payload?id=one", http.StatusFound)
+			return
+		}
+		downloads.Add(1)
+		fmt.Fprint(w, `<nzb><file><segments><segment>bad<segment>nested</segment>data</segment></segments></file></nzb>`)
+	})
+	for _, wrapper := range []string{"one", "two"} {
+		link := g.signedLink(s.URL+"/prowlarr/1/download?apikey=secret&link="+wrapper, "same-guid")
+		if w := serve(g, link); w.Code != http.StatusBadGateway {
+			t.Fatalf("invalid NZB status = %d", w.Code)
+		}
+		h, err := New(g.cfg, g.store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		g = h.(*gateway)
+	}
+	if resolutions.Load() != 1 || downloads.Load() != 1 {
+		t.Fatalf("resolutions=%d downloads=%d", resolutions.Load(), downloads.Load())
+	}
+}
+
+func TestInvalidNZBCooldownAcrossUnsignedRedirects(t *testing.T) {
+	var resolutions, downloads atomic.Int32
+	g, _ := setup(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/download") {
+			resolutions.Add(1)
+			http.Redirect(w, r, "/payload?id=one", http.StatusFound)
+			return
+		}
+		downloads.Add(1)
+		fmt.Fprint(w, `<nzb><file><segments><segment>bad<segment>nested</segment>data</segment></segments></file></nzb>`)
+	})
+	for _, wrapper := range []string{"one", "two"} {
+		if w := serve(g, "http://proxy.test/base/1/download?apikey=secret&link="+wrapper); w.Code != http.StatusBadGateway {
+			t.Fatalf("invalid NZB status = %d", w.Code)
+		}
+	}
+	if resolutions.Load() != 2 || downloads.Load() != 1 {
+		t.Fatalf("resolutions=%d downloads=%d", resolutions.Load(), downloads.Load())
 	}
 }
 

@@ -50,6 +50,9 @@ type gateway struct {
 }
 
 var errDisallowedRedirect = errors.New("redirect destination is not allowed")
+var errInvalidNZB = errors.New("invalid NZB document")
+
+const invalidNZBCooldown = 15 * time.Minute
 
 type rateLimitError struct{ retryAfter string }
 
@@ -214,11 +217,22 @@ func (g *gateway) shared(ctx context.Context, key string, fetch func(context.Con
 			var ok bool
 			f.entry, ok, f.err = g.store.Get(key)
 			if f.err != nil || ok {
+				if ok && f.entry.Invalid {
+					f.err = errInvalidNZB
+				}
 				return
 			}
 			fetchCtx, cancel := context.WithTimeout(context.Background(), g.cfg.FetchTimeout)
 			defer cancel()
 			f.entry, f.err = fetch(fetchCtx)
+			var invalid error
+			if errors.Is(f.err, errInvalidNZB) {
+				invalid = f.err
+				if !f.entry.Invalid {
+					f.entry = cache.Entry{Invalid: true, ExpiresAt: time.Now().Add(invalidNZBCooldown)}
+				}
+				f.err = nil
+			}
 			if f.err == nil {
 				f.err = g.store.Put(key, f.entry)
 				if f.err == nil {
@@ -227,6 +241,9 @@ func (g *gateway) shared(ctx context.Context, key string, fetch func(context.Con
 					if f.err == nil && !found {
 						f.err = errors.New("cache entry expired during publication")
 					}
+				}
+				if f.err == nil {
+					f.err = invalid
 				}
 			}
 		}()
@@ -311,7 +328,7 @@ func (g *gateway) readNZB(resp *http.Response) (cache.Entry, error) {
 		return cache.Entry{}, errors.New("invalid download size")
 	}
 	if !validNZB(data) {
-		return cache.Entry{}, errors.New("invalid NZB document")
+		return cache.Entry{}, errInvalidNZB
 	}
 	_, params, _ := mime.ParseMediaType(resp.Header.Get("Content-Disposition"))
 	return cache.Entry{Data: data, ContentType: "application/x-nzb", Filename: params["filename"]}, nil
