@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nzb-proxy-cache
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nzb-proxy
+spec:
+  replicas: 1
+  # The old pod must release the exclusive cache lock before its replacement starts.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: nzb-proxy
+  template:
+    metadata:
+      labels:
+        app: nzb-proxy
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: proxy
+          image: ghcr.io/cornfeedhobo/nzb-proxy:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: NZB_PROXY_UPSTREAM_URL
+              value: http://prowlarr:9696
+            - name: NZB_PROXY_PUBLIC_URL
+              value: http://nzb-proxy:8080
+            - name: NZB_PROXY_ALLOWED_HOSTS
+              value: indexer.example
+            - name: NZB_PROXY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nzb-proxy
+                  key: api-key
+            - name: NZB_PROXY_SIGNING_KEY_FILE
+              value: /run/secrets/nzb-proxy/signing-key
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          volumeMounts:
+            - name: cache
+              mountPath: /data
+            - name: signing-key
+              mountPath: /run/secrets/nzb-proxy
+              readOnly: true
+      volumes:
+        - name: cache
+          persistentVolumeClaim:
+            claimName: nzb-proxy-cache
+        - name: signing-key
+          secret:
+            secretName: nzb-proxy
+            defaultMode: 0440
+            items:
+              - key: signing-key
+                path: signing-key
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nzb-proxy
+spec:
+  selector:
+    app: nzb-proxy
+  ports:
+    - port: 8080
+      targetPort: http

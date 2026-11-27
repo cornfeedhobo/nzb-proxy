@@ -1,0 +1,108 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - run: make test
+      - name: Check CLI version without service configuration
+        run: |
+          actual=$(go run ./cmd/nzb-proxy --version)
+          test "$actual" = 'nzb-proxy dev (commit unknown)'
+          actual=$(go run -ldflags="-X main.version=0.1.0 -X main.commit=$GITHUB_SHA" ./cmd/nzb-proxy --version)
+          test "$actual" = "nzb-proxy 0.1.0 (commit $GITHUB_SHA)"
+      - name: Upload unit test coverage
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: coverage
+          path: coverage.out
+          if-no-files-found: error
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: docker/setup-buildx-action@v4.4.1
+      - run: make e2e
+  publish:
+    needs: [test, e2e]
+    if: github.event_name == 'push' && !github.event.deleted && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Determine image tags and binary version
+        id: release
+        shell: bash
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          if [[ "$GITHUB_REF" == 'refs/heads/main' ]]; then
+            version=dev
+            tags="${image}:latest,${image}:sha-${GITHUB_SHA}"
+          elif [[ "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            tags="${image}:${GITHUB_REF_NAME},${image}:${version}"
+          else
+            echo 'Release tags must have the form vMAJOR.MINOR.PATCH (for example v0.1.0).' >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+      - name: Package release chart
+        if: github.ref_type == 'tag'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          IMAGE: ${{ steps.release.outputs.image }}
+        run: |
+          yq -i '.image.repository = strenv(IMAGE)' deploy/helm/values.yaml
+          helm package deploy/helm --version "$VERSION" --app-version "$VERSION" --destination "$RUNNER_TEMP"
+      - uses: docker/setup-buildx-action@v4.4.1
+      - name: Log in to GHCR
+        uses: docker/login-action@v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish image
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            VERSION=${{ steps.release.outputs.version }}
+            REVISION=${{ github.sha }}
+          tags: ${{ steps.release.outputs.tags }}
+          labels: |
+            org.opencontainers.image.title=nzb-proxy
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.release.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=MIT
+      - name: Publish release chart to GHCR
+        if: github.ref_type == 'tag'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          helm push "$RUNNER_TEMP/nzb-proxy-${VERSION}.tgz" "oci://ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/charts" \
+            --registry-config "${DOCKER_CONFIG:-$HOME/.docker}/config.json"

@@ -1,0 +1,88 @@
+{{- $name := include "nzb-proxy.fullname" . -}}
+{{- $secret := default $name .Values.existingSecret -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nzb-proxy.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "nzb-proxy.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nzb-proxy.selectorLabels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: proxy
+          image: {{ include "nzb-proxy.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: NZB_PROXY_UPSTREAM_URL
+              value: {{ required "config.upstreamURL is required" .Values.config.upstreamURL | quote }}
+            - name: NZB_PROXY_PUBLIC_URL
+              value: {{ default (printf "http://%s:%v" $name .Values.service.port) .Values.config.publicURL | quote }}
+            - name: NZB_PROXY_ALLOWED_HOSTS
+              value: {{ join "," .Values.config.allowedHosts | quote }}
+            - name: NZB_PROXY_CACHE_TTL
+              value: {{ .Values.config.cacheTTL | quote }}
+            - name: NZB_PROXY_FETCH_TIMEOUT
+              value: {{ .Values.config.fetchTimeout | quote }}
+            - name: NZB_PROXY_MAX_NZB_BYTES
+              value: {{ .Values.config.maxNZBBytes | int64 | quote }}
+            - name: NZB_PROXY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret | quote }}
+                  key: api-key
+            - name: NZB_PROXY_SIGNING_KEY_FILE
+              value: /run/secrets/nzb-proxy/signing-key
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          volumeMounts:
+            - name: cache
+              mountPath: /data
+            - name: signing-key
+              mountPath: /run/secrets/nzb-proxy
+              readOnly: true
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: cache
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-cache" $name) .Values.persistence.existingClaim | quote }}
+        - name: signing-key
+          secret:
+            secretName: {{ $secret | quote }}
+            defaultMode: 0440
+            items:
+              - key: signing-key
+                path: signing-key

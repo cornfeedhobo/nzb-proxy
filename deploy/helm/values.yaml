@@ -1,0 +1,30 @@
+image:
+  repository: ghcr.io/cornfeedhobo/nzb-proxy
+  # Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: Always
+imagePullSecrets: []
+
+# Defaults to the Service name. Keys: api-key and signing-key (32 raw bytes).
+existingSecret: ""
+
+config:
+  upstreamURL: http://prowlarr:9696
+  # Defaults to the in-cluster Service URL. Set this to the address clients use.
+  publicURL: ""
+  allowedHosts: []
+  cacheTTL: 168h
+  fetchTimeout: 60s
+  maxNZBBytes: 33554432
+
+service:
+  type: ClusterIP
+  port: 8080
+
+persistence:
+  size: 1Gi
+  # null selects the cluster default. An empty string requests no StorageClass.
+  storageClassName: null
+  existingClaim: ""
+
+resources: {}

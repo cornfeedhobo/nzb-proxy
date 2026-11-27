@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: fixture
+  labels:
+    app: fixture
+spec:
+  automountServiceAccountToken: false
+  containers:
+    - name: fixture
+      image: nzb-proxy-builder:e2e
+      imagePullPolicy: Never
+      command: [go, run, /test/fixture.go]
+      readinessProbe:
+        httpGet:
+          path: /stats
+          port: 8080
+      volumeMounts:
+        - name: tls
+          mountPath: /tls
+          readOnly: true
+        - name: source
+          mountPath: /test
+          readOnly: true
+  volumes:
+    - name: tls
+      secret:
+        secretName: fixture-tls
+    - name: source
+      configMap:
+        name: fixture-source
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fixture
+spec:
+  selector:
+    app: fixture
+  ports:
+    - name: http
+      port: 8080
+    - name: https
+      port: 443

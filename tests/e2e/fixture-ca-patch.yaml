@@ -1,0 +1,14 @@
+spec:
+  template:
+    spec:
+      containers:
+        - name: proxy
+          volumeMounts:
+            - name: fixture-ca
+              mountPath: /etc/ssl/certs/fixture.crt
+              subPath: cert.pem
+              readOnly: true
+      volumes:
+        - name: fixture-ca
+          configMap:
+            name: fixture-ca

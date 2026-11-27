@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../deploy/kustomize
+images:
+  - name: ghcr.io/cornfeedhobo/nzb-proxy
+    newName: nzb-proxy
+    newTag: e2e
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: nzb-proxy
+      spec:
+        template:
+          spec:
+            containers:
+              - name: proxy
+                env:
+                  - name: NZB_PROXY_PUBLIC_URL
+                    value: http://nzb-proxy:8080/cache
+                  - name: NZB_PROXY_ALLOWED_HOSTS
+                    value: fixture

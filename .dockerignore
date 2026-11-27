@@ -1,0 +1,7 @@
+.git
+AGENTS.md
+**/.env
+data
+bin
+docs
+*.test

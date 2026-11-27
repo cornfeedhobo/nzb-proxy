@@ -1,0 +1,7 @@
+Check the proxy rollout:
+
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "nzb-proxy.fullname" . }}
+
+In Prowlarr, set Prowlarr Server for each application to:
+
+  {{ default (printf "http://%s:%v" (include "nzb-proxy.fullname" .) .Values.service.port) .Values.config.publicURL }}
