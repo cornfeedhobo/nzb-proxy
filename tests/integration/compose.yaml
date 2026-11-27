@@ -1,0 +1,40 @@
+services:
+  fixture:
+    image: python:3.13.12-alpine3.23
+    command: [python, /test/fixture.py]
+    volumes:
+      - ./fixture.py:/test/fixture.py:ro
+      - ${TEST_STATE}/tls:/tls:ro
+    ports:
+      - 127.0.0.1::8080
+  prowlarr:
+    image: ghcr.io/home-operations/prowlarr:2.4.0.5391
+    volumes:
+      - prowlarr:/config
+      - ${TEST_STATE}/prowlarr/config.xml:/config/config.xml
+    ports:
+      - 127.0.0.1::9696
+  radarr:
+    image: ghcr.io/home-operations/radarr:6.2.0.10390
+    volumes:
+      - radarr:/config
+      - ${TEST_STATE}/radarr/config.xml:/config/config.xml
+    ports:
+      - 127.0.0.1::7878
+  proxy:
+    build: ../..
+    environment:
+      NZB_PROXY_UPSTREAM_URL: http://prowlarr:9696
+      NZB_PROXY_PUBLIC_URL: http://proxy:8080/cache
+      NZB_PROXY_API_KEY: ${TEST_API_KEY}
+      NZB_PROXY_ALLOWED_HOSTS: fixture
+      SSL_CERT_FILE: /tls/cert.pem
+    volumes:
+      - cache:/data
+      - ${TEST_STATE}/tls/cert.pem:/tls/cert.pem:ro
+    ports:
+      - 127.0.0.1::8080
+volumes:
+  cache:
+  prowlarr:
+  radarr:
